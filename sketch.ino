@@ -39,7 +39,7 @@ enum EstadoControle
   On_Off = 0, PID = 1
 } estadoControle;
 
-enum EstadoClimatizacao
+enum EstadoClimatizacaoOnOff
 {
   Ventilando = 0, 
   Refrigerando = 1, 
@@ -49,8 +49,24 @@ enum EstadoClimatizacao
   DecrSpeedR = 5, 
   DecrSpeedV = 6, 
   IncrSpeedV = 7
-} estadoClim;
+} estadoClimOnOff;
 
+enum EstadoClimatizacaoPID
+{
+  Ventilando_PID = 0, 
+  Refrigerando_PID = 1, 
+  IncrTempI_PID = 2, 
+  DecrTempI_PID = 3, 
+  IncrSpeedR_PID = 4, 
+  DecrSpeedR_PID = 5, 
+  DecrSpeedV_PID = 6, 
+  IncrSpeedV_PID = 7
+} estadoClimPID;
+
+
+unsigned long previousMillis = 0;  // Armazena o tempo anterior
+const long interval = 1000;  // Intervalo de 1 segundo para alternar
+bool mostrarTemp = true;  // Flag para alternar entre TempI e Speed
 
 int TempI = 23, Speed = 5, TempT = 2, Att = 5;
 
@@ -82,9 +98,11 @@ void setup()
 
   estadoLigaDesliga = Desligado;
   estadoControle = On_Off;
-  estadoClim = Ventilando;
+  estadoClimOnOff = Ventilando;
   
 }
+
+//ESTADOS DIAGRAMA LIGA/DESLIGA
 
 void processamentoDesligado() 
 {
@@ -116,6 +134,8 @@ void processamentoLigado()
 
 }
 
+//ESTADOS DIAGRAMA CONTROLE
+
 void processamentoOn_Off()
 {
   if(digitalRead(Control))
@@ -125,11 +145,6 @@ void processamentoOn_Off()
   }
 
   digitalWrite(LED_PID, LOW);
-
-  if (estadoClim != Ventilando) 
-  {
-    estadoClim = Ventilando;
-  }
 
   lcd.setCursor(0, 0);
   lcd.print("On/Off");
@@ -150,6 +165,8 @@ void processamentoPID()
   lcd.print("PID");
 }
 
+//ESTADOS DIAGRAMA CLIMATIZAÇÃO ON OFF
+
 void processamentoVenti()
 {
   sensors.requestTemperatures();
@@ -158,25 +175,29 @@ void processamentoVenti()
 
   if(temperaturaS > (TempI + TempT))
   {
-    estadoClim = Refrigerando;
+    estadoClimOnOff = Refrigerando;
   }
 
   if(digitalRead(UpVel))
   {
     delay(300);
-    estadoClim = IncrSpeedV;
+    estadoClimOnOff = IncrSpeedV;
   }
 
   if(digitalRead(DownVel))
   {
     delay(300);
-    estadoClim = DecrSpeedV;
+    estadoClimOnOff = DecrSpeedV;
   }
 
   digitalWrite(FAN, HIGH);
   digitalWrite(COMPRESSOR, LOW);
   Serial.print("Estado: Ventilando - Temperatura: ");
   Serial.println(temperaturaS);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("Speed: ");
+  lcd.print(Speed);
 }
 
 void processamentoRefri()
@@ -187,38 +208,56 @@ void processamentoRefri()
   
   if(temperaturaS < (TempI + TempT))
   {
-    estadoClim = Ventilando;
+    estadoClimOnOff = Ventilando;
   }
 
   if(digitalRead(UpTemp))
   {
     delay(300);
-    estadoClim = IncrTempI;
+    estadoClimOnOff = IncrTempI;
   }
 
   if(digitalRead(DownTemp))
   {
     delay(300);
-    estadoClim = DecrTempI;
+    estadoClimOnOff = DecrTempI;
   }
 
   if(digitalRead(UpVel))
   {
     delay(300);
-    estadoClim = IncrSpeedR;
+    estadoClimOnOff = IncrSpeedR;
   }
 
   if(digitalRead(DownVel))
   {
     delay(300);
-    estadoClim = IncrSpeedR;
+    estadoClimOnOff = DecrSpeedR;
   }
-
 
   digitalWrite(FAN, HIGH);
   digitalWrite(COMPRESSOR, HIGH);
-  Serial.println("Estado Refrigerando");
+  Serial.print("Estado: Refrigerando - Temperatura: ");
+  Serial.println(temperaturaS);
 
+  unsigned long currentMillis = millis();  
+  
+  if (currentMillis - previousMillis >= interval) 
+  {
+    previousMillis = currentMillis;  
+    
+    // Alterna entre mostrar TempI e Speed
+    lcd.setCursor(0, 1);
+    if (mostrarTemp) {
+      lcd.print("Speed: ");  
+      lcd.print(Speed); 
+    } else {
+      lcd.print("Temp: "); 
+      lcd.print(TempI);  
+    }
+    
+    mostrarTemp = !mostrarTemp;
+  }
 }
 
 void processamentoIncrTempI()
@@ -229,32 +268,28 @@ void processamentoIncrTempI()
     TempI++;
   }
 
-  estadoClim = Refrigerando;
+  estadoClimOnOff = Refrigerando;
 
   digitalWrite(FAN, LOW);
   digitalWrite(COMPRESSOR, LOW);
-  Serial.print("Speed: ");
-  Serial.print(Speed);
-
-  Serial.println("Estado IncrTempI");
+  Serial.print("Estado IncrTempI - Temperatura Alvo: ");
+  Serial.println(TempI);
 }
 
 void processamentoDecrTempI()
 {
 
-  if(TempI > 5)
+  if(TempI > 16)
   {
     TempI--;
   }
 
-  estadoClim = Refrigerando;
+  estadoClimOnOff = Refrigerando;
 
   digitalWrite(FAN, LOW);
   digitalWrite(COMPRESSOR, LOW);
-  Serial.print("Speed: ");
-  Serial.print(Speed);
-
-  Serial.println("Estado DecrTempI");
+  Serial.print("Estado DecrTempI - Temperatura Alvo: ");
+  Serial.println(TempI);
 }
 
 void processamentoIncrSpeedV()
@@ -267,12 +302,10 @@ void processamentoIncrSpeedV()
 
   digitalWrite(FAN, LOW);
   digitalWrite(COMPRESSOR, LOW);
-  Serial.print("Speed: ");
+  Serial.print("Estado IncrSpeedV - Speed: ");
   Serial.println(Speed);
 
-  Serial.println("Estado IncrSpeedV");
-
-  estadoClim = Ventilando;
+  estadoClimOnOff = Ventilando;
 }
 
 void processamentoDecrSpeedV()
@@ -285,12 +318,10 @@ void processamentoDecrSpeedV()
 
   digitalWrite(FAN, LOW);
   digitalWrite(COMPRESSOR, LOW);
-  Serial.print("Speed: ");
+  Serial.print("Estado DecrSpeedV - Speed: ");
   Serial.println(Speed);
 
-  Serial.println("Estado DecrSpeedV");
-
-  estadoClim = Ventilando;
+  estadoClimOnOff = Ventilando;
 }
 
 void processamentoDecrSpeedR()
@@ -301,14 +332,12 @@ void processamentoDecrSpeedR()
     Speed--;
   }
 
-  estadoClim = Ventilando;
+  estadoClimOnOff = Refrigerando;
 
   digitalWrite(FAN, LOW);
   digitalWrite(COMPRESSOR, LOW);
-  Serial.print("Speed: ");
+  Serial.print("Estado DecrSpeedR - Speed: ");
   Serial.println(Speed);
-
-  Serial.println("Estado DecrSpeedR");
 }
 
 void processamentoIncrSpeedR()
@@ -319,15 +348,202 @@ void processamentoIncrSpeedR()
     Speed++;
   }
 
-  estadoClim = Ventilando;
+  estadoClimOnOff = Refrigerando;
 
   digitalWrite(FAN, LOW);
   digitalWrite(COMPRESSOR, LOW);
-  Serial.print("Speed: ");
+  Serial.print("Estado IncrSpeedR - Speed: ");
+  Serial.println(Speed);
+}
+
+//ESTADOS DIAGRAMA CLIMATIZAÇÃO PID
+
+void processamentoVenti_PID()
+{
+  if(digitalRead(Mode))
+  {
+    estadoClimPID = Refrigerando_PID;
+  }
+
+  if(digitalRead(UpVel))
+  {
+    delay(300);
+    estadoClimPID = IncrSpeedV_PID;
+  }
+
+  if(digitalRead(DownVel))
+  {
+    delay(300);
+    estadoClimPID = DecrSpeedV_PID;
+  }
+
+  digitalWrite(FAN, HIGH);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado PID: Ventilando - Speed: ");
   Serial.println(Speed);
 
-  Serial.println("Estado IncrSpeedR");
+  lcd.setCursor(0, 1);
+  lcd.print("Speed: ");
+  lcd.print(Speed);
 }
+
+void processamentoRefri_PID()
+{ 
+  sensors.requestTemperatures();
+
+  float temperaturaS = sensors.getTempCByIndex(0);
+  
+  if(digitalRead(Mode))
+  {
+    estadoClimPID = Ventilando_PID;
+  }
+
+  if(digitalRead(UpTemp))
+  {
+    delay(300);
+    estadoClimPID = IncrTempI_PID;
+  }
+
+  if(digitalRead(DownTemp))
+  {
+    delay(300);
+    estadoClimPID = DecrTempI_PID;
+  }
+
+  if(digitalRead(UpVel))
+  {
+    delay(300);
+    estadoClimPID = IncrSpeedR_PID;
+  }
+
+  if(digitalRead(DownVel))
+  {
+    delay(300);
+    estadoClimPID = DecrSpeedR_PID;
+  }
+
+
+  digitalWrite(FAN, HIGH);
+  digitalWrite(COMPRESSOR, HIGH);
+  Serial.print("Estado PID: Refrigerando - Temperatura: ");
+  Serial.println(temperaturaS);
+
+  unsigned long currentMillis = millis();  
+  
+  if (currentMillis - previousMillis >= interval) 
+  {
+    previousMillis = currentMillis;  
+    
+    // Alterna entre mostrar TempI e Speed
+    lcd.setCursor(0, 1);
+    if (mostrarTemp) {
+      lcd.print("Speed: ");  
+      lcd.print(Speed); 
+    } else {
+      lcd.print("Temp: "); 
+      lcd.print(TempI);  
+    }
+    
+    mostrarTemp = !mostrarTemp;
+  }
+}
+
+void processamentoIncrTempI_PID()
+{
+
+  if(TempI < 29)
+  {
+    TempI++;
+  }
+
+  estadoClimPID = Refrigerando_PID;
+
+  digitalWrite(FAN, LOW);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado IncrTempI - Temperatura Alvo: ");
+  Serial.println(TempI);
+}
+
+void processamentoDecrTempI_PID()
+{
+
+  if(TempI > 16)
+  {
+    TempI--;
+  }
+
+  estadoClimPID = Refrigerando_PID;
+
+  digitalWrite(FAN, LOW);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado DecrTempI - Temperatura Alvo: ");
+  Serial.println(TempI);
+}
+
+void processamentoIncrSpeedV_PID()
+{
+  
+  if(Speed < 10)
+  {
+    Speed++;
+  }
+
+  digitalWrite(FAN, LOW);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado IncrSpeedV - Speed: ");
+  Serial.println(Speed);
+
+  estadoClimPID = Ventilando_PID;
+}
+
+void processamentoDecrSpeedV_PID()
+{
+
+  if(Speed > 1)
+  {
+    Speed--;
+  }
+
+  digitalWrite(FAN, LOW);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado DecrSpeedV - Speed: ");
+  Serial.println(Speed);
+
+  estadoClimPID = Ventilando_PID;
+}
+
+void processamentoDecrSpeedR_PID()
+{
+  
+  if(Speed > 1)
+  {
+    Speed--;
+  }
+
+  estadoClimPID = Refrigerando_PID;
+
+  digitalWrite(FAN, LOW);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado DecrSpeedR - Speed: ");
+  Serial.println(Speed);
+}
+
+void processamentoIncrSpeedR_PID()
+{
+  
+  if(Speed < 10)
+  {
+    Speed++;
+  }
+
+  estadoClimPID = Refrigerando_PID;
+
+  digitalWrite(FAN, LOW);
+  digitalWrite(COMPRESSOR, LOW);
+  Serial.print("Estado IncrSpeedR - Speed: ");
+  Serial.println(Speed);
+}
+
 
 void loop()
  {
@@ -358,7 +574,7 @@ void loop()
 
   if(estadoControle == On_Off && estadoLigaDesliga == Ligado)
   {
-    switch(estadoClim)
+    switch(estadoClimOnOff)
     {
       case Ventilando:
         processamentoVenti();
@@ -383,6 +599,38 @@ void loop()
         break;
       case IncrSpeedV:
         processamentoIncrSpeedV();
+        break;
+    }
+  }
+
+
+  if(estadoControle == PID && estadoLigaDesliga == Ligado)
+  {
+    switch(estadoClimPID)
+    {
+      case Ventilando_PID:
+        processamentoVenti_PID();
+        break;
+      case Refrigerando_PID:
+        processamentoRefri_PID();
+        break;
+      case IncrTempI_PID:
+        processamentoIncrTempI_PID();
+        break;
+      case DecrTempI_PID:
+        processamentoDecrTempI_PID();
+        break;
+      case IncrSpeedR_PID:
+        processamentoIncrSpeedR_PID();
+        break;
+      case DecrSpeedR_PID:
+        processamentoDecrSpeedR_PID();
+        break;
+      case DecrSpeedV_PID:
+        processamentoDecrSpeedV_PID();
+        break;
+      case IncrSpeedV_PID:
+        processamentoIncrSpeedV_PID();
         break;
     }
   }
